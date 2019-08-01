@@ -103,19 +103,20 @@ fn stub_data(mut data: Data) -> Data {
     use crate::{Asset, Release, Target};
     use actix_web::http::Uri;
 
-    let mut target = Target::new("darwin-x86_64");
-    target.set_assets(vec![Asset::new(
-        "names",
-        Uri::from_static("https://github.com/fnichol/names/releases/download/v0.11.0/names_0.11.0_darwin_x86_64.zip")
-    )]);
-    let mut release = Release::new("v0.11.0");
-    release.set_targets(vec![target, Target::new("linux-x86_64")]);
-
     data.provider_mut("github.com")
         .expect("provider should be registered")
-        .repo_mut("fnichol", "names")
-        .expect("repo should exist")
-        .set_releases(vec![release]);
+        .update_repo("fnichol", "names", |repo| {
+            let mut target = Target::new("darwin-x86_64");
+            target.set_assets(vec![Asset::new(
+                "names",
+                Uri::from_static("https://github.com/fnichol/names/releases/download/v0.11.0/names_0.11.0_darwin_x86_64.zip")
+            )]);
+            let mut release = Release::new("v0.11.0");
+            release.set_targets(vec![target, Target::new("linux-x86_64")]);
+
+            repo.set_releases(vec![release]);
+        })
+        .expect("repo should exist");
 
     data
 }

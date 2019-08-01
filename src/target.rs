@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Target {
     id: String,
     assets: HashMap<String, Asset>,

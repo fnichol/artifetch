@@ -1,5 +1,6 @@
 use crate::Repo;
 use github::GitHub;
+use std::sync::Arc;
 
 pub mod github;
 
@@ -15,13 +16,13 @@ impl Provider {
         }
     }
 
-    pub fn repos(&self) -> impl Iterator<Item = &Repo> {
+    pub fn repos<'a>(&'a self) -> impl Iterator<Item = Arc<Repo>> + 'a {
         match self {
             Provider::GitHub(github) => github.repos(),
         }
     }
 
-    pub fn repo<S, T>(&self, owner: S, name: T) -> Option<&Repo>
+    pub fn repo<S, T>(&self, owner: S, name: T) -> Option<Arc<Repo>>
     where
         S: AsRef<str>,
         T: AsRef<str>,
@@ -31,13 +32,14 @@ impl Provider {
         }
     }
 
-    pub fn repo_mut<S, T>(&mut self, owner: S, name: T) -> Option<&mut Repo>
+    pub fn update_repo<S, T, F>(&mut self, owner: S, name: T, update: F) -> Result<(), ()>
     where
         S: AsRef<str>,
         T: AsRef<str>,
+        F: FnMut(&mut Repo),
     {
         match self {
-            Provider::GitHub(github) => github.repo_mut(owner, name),
+            Provider::GitHub(github) => github.update_repo(owner, name, update),
         }
     }
 }

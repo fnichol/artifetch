@@ -6,7 +6,7 @@ use std::io;
 use std::str::FromStr;
 use std::time::Instant;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Repo {
     owner: String,
     name: String,

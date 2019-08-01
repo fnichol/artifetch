@@ -1,10 +1,11 @@
 use crate::Repo;
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 #[derive(Debug)]
 pub struct GitHub {
     domain: String,
-    repos: HashMap<String, HashMap<String, Repo>>,
+    repos: HashMap<String, HashMap<String, RwLock<Arc<Repo>>>>,
 }
 
 impl GitHub {
@@ -18,7 +19,7 @@ impl GitHub {
             repos
                 .entry(repo.owner().to_string())
                 .or_insert_with(HashMap::new)
-                .insert(repo.name().to_string(), repo);
+                .insert(repo.name().to_string(), RwLock::new(Arc::new(repo)));
         }
 
         GitHub {
@@ -31,11 +32,14 @@ impl GitHub {
         &self.domain
     }
 
-    pub fn repos(&self) -> impl Iterator<Item = &Repo> {
-        self.repos.values().map(|i| i.values()).flatten()
+    pub fn repos<'a>(&'a self) -> impl Iterator<Item = Arc<Repo>> + 'a {
+        self.repos
+            .values()
+            .map(|i| i.values().map(|r| r.read().expect("lock poisoned").clone()))
+            .flatten()
     }
 
-    pub fn repo<S, T>(&self, owner: S, name: T) -> Option<&Repo>
+    pub fn repo<S, T>(&self, owner: S, name: T) -> Option<Arc<Repo>>
     where
         S: AsRef<str>,
         T: AsRef<str>,
@@ -43,15 +47,24 @@ impl GitHub {
         self.repos
             .get(owner.as_ref())
             .and_then(|o| o.get(name.as_ref()))
+            .map(|r| r.read().expect("lock poisoned").clone())
     }
 
-    pub fn repo_mut<S, T>(&mut self, owner: S, name: T) -> Option<&mut Repo>
+    pub fn update_repo<S, T, F>(&mut self, owner: S, name: T, update: F) -> Result<(), ()>
     where
         S: AsRef<str>,
         T: AsRef<str>,
+        F: FnOnce(&mut Repo),
     {
-        self.repos
+        let mut repo = self
+            .repos
             .get_mut(owner.as_ref())
             .and_then(|o| o.get_mut(name.as_ref()))
+            .map(|r| r.write().expect("lock poisoned"))
+            .ok_or_else(|| panic!("TODO: no such repo: {}/{}", owner.as_ref(), name.as_ref()))?;
+
+        update(Arc::make_mut(&mut repo));
+
+        Ok(())
     }
 }

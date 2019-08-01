@@ -2,7 +2,7 @@ use actix_web::http::Uri;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Asset {
     id: String,
     download_uri: Uri,

@@ -1,9 +1,11 @@
 use crate::app;
 use actix_web::web;
+use owning_ref::OwningRef;
 use serde::{de, Deserialize, Deserializer};
 use std::fmt;
 use std::io;
 use std::str::FromStr;
+use std::sync::Arc;
 
 #[derive(Debug)]
 pub enum Version {
@@ -207,6 +209,10 @@ impl AssetPath for Asset {
     }
 }
 
+pub type ReleaseRef = OwningRef<Arc<crate::Repo>, crate::Release>;
+pub type TargetRef = OwningRef<ReleaseRef, crate::Target>;
+pub type AssetRef = OwningRef<TargetRef, crate::Asset>;
+
 pub fn get_provider<'a, P>(
     path: &P,
     data: &'a web::Data<app::Data>,
@@ -214,56 +220,50 @@ pub fn get_provider<'a, P>(
 where
     P: ProviderPath,
 {
-    match data.provider(path.provider()) {
-        Some(p) => Ok(p),
-        None => panic!("TODO: no such provider: {}", path.provider()),
-    }
+    data.provider(path.provider())
+        .ok_or_else(|| panic!("TODO: no such provider: {}", path.provider()))
 }
 
-pub fn get_repo<'a, P>(path: &P, data: &'a web::Data<app::Data>) -> Result<&'a crate::Repo, ()>
+pub fn get_repo<P>(path: &P, data: &web::Data<app::Data>) -> Result<Arc<crate::Repo>, ()>
 where
     P: RepoPath + ProviderPath,
 {
-    match get_provider(path, data)?.repo(path.owner(), path.repo()) {
-        Some(r) => Ok(r),
-        None => panic!("TODO: no such repo: {}/{}", path.owner(), path.repo()),
-    }
+    get_provider(path, data)?
+        .repo(path.owner(), path.repo())
+        .ok_or_else(|| panic!("TODO: no such repo: {}/{}", path.owner(), path.repo()))
 }
 
-pub fn get_release<'a, P>(
-    path: &P,
-    data: &'a web::Data<app::Data>,
-) -> Result<&'a crate::Release, ()>
+pub fn get_release<P>(path: &P, data: &web::Data<app::Data>) -> Result<ReleaseRef, ()>
 where
     P: ReleasePath + RepoPath,
 {
-    let repo = get_repo(path, data)?;
-
-    match match path.version() {
-        Version::Latest => repo.latest_release(),
-        Version::Version(version) => repo.release(version),
-    } {
-        Some(r) => Ok(r),
-        None => panic!("TODO: no such release: {}", path.version()),
-    }
+    OwningRef::new(get_repo(path, data)?).try_map(|repo| {
+        match path.version() {
+            Version::Latest => repo.latest_release(),
+            Version::Version(version) => repo.release(version),
+        }
+        .ok_or_else(|| panic!("TODO: no such release: {}", path.version()))
+    })
 }
 
-pub fn get_target<'a, P>(path: &P, data: &'a web::Data<app::Data>) -> Result<&'a crate::Target, ()>
+pub fn get_target<P>(path: &P, data: &web::Data<app::Data>) -> Result<TargetRef, ()>
 where
     P: TargetPath + ReleasePath,
 {
-    match get_release(path, data)?.target(path.target()) {
-        Some(t) => Ok(t),
-        None => panic!("TODO: no such target: {}", path.target()),
-    }
+    OwningRef::new(get_release(path, data)?).try_map(|release| {
+        release
+            .target(path.target())
+            .ok_or_else(|| panic!("TODO: no such target: {}", path.target()))
+    })
 }
 
-pub fn get_asset<'a, P>(path: &P, data: &'a web::Data<app::Data>) -> Result<&'a crate::Asset, ()>
+pub fn get_asset<P>(path: &P, data: &web::Data<app::Data>) -> Result<AssetRef, ()>
 where
     P: AssetPath + TargetPath,
 {
-    match get_target(path, data)?.asset(path.asset()) {
-        Some(a) => Ok(a),
-        None => panic!("TODO: no such asset: {}", path.asset()),
-    }
+    OwningRef::new(get_target(path, data)?).try_map(|target| {
+        target
+            .asset(path.asset())
+            .ok_or_else(|| panic!("TODO: no such asset: {}", path.asset()))
+    })
 }
