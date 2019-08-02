@@ -25,6 +25,6 @@ impl From<Config> for Data {
             }
         }
 
-        Data { registry }
+        Self::new(registry)
     }
 }

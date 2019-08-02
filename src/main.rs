@@ -10,7 +10,7 @@ fn main() {
 }
 
 fn try_main() -> io::Result<()> {
-    std::env::set_var("RUST_LOG", "actix_server=info,actix_web=info");
+    std::env::set_var("RUST_LOG", "actix_server=info,actix_web=info,ghrr=info");
     env_logger::init();
 
     app::run(stub_config())

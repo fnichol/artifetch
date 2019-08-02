@@ -7,8 +7,12 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+actix-rt = "0.2.4"
 actix-web = "1.0.5"
 env_logger = "0.6.2"
-serde = "1.0.97"
 futures = "0.1.28"
+log = "0.4.8"
 owning_ref = "0.4.0"
+serde = "1.0.97"
+tokio-timer = "0.2.11"
+rand = "0.7.0"

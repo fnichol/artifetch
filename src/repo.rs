@@ -4,7 +4,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::io;
 use std::str::FromStr;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 pub struct Repo {
@@ -13,6 +13,7 @@ pub struct Repo {
     releases: HashMap<String, Release>,
     latest_id: Option<String>,
     updated: Option<Instant>,
+    interval: Duration,
 }
 
 impl Repo {
@@ -27,6 +28,7 @@ impl Repo {
             releases: HashMap::new(),
             latest_id: None,
             updated: None,
+            interval: Duration::from_secs(30),
         }
     }
 
@@ -36,6 +38,10 @@ impl Repo {
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    pub fn interval(&self) -> Duration {
+        self.interval
     }
 
     pub fn releases(&self) -> impl Iterator<Item = &Release> {

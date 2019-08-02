@@ -50,7 +50,7 @@ impl GitHub {
             .map(|r| r.read().expect("lock poisoned").clone())
     }
 
-    pub fn update_repo<S, T, F>(&mut self, owner: S, name: T, update: F) -> Result<(), ()>
+    pub fn update_repo<S, T, F>(&self, owner: S, name: T, update: F) -> Result<(), ()>
     where
         S: AsRef<str>,
         T: AsRef<str>,
@@ -58,8 +58,8 @@ impl GitHub {
     {
         let mut repo = self
             .repos
-            .get_mut(owner.as_ref())
-            .and_then(|o| o.get_mut(name.as_ref()))
+            .get(owner.as_ref())
+            .and_then(|o| o.get(name.as_ref()))
             .map(|r| r.write().expect("lock poisoned"))
             .ok_or_else(|| panic!("TODO: no such repo: {}/{}", owner.as_ref(), name.as_ref()))?;
 

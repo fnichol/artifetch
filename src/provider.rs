@@ -32,11 +32,11 @@ impl Provider {
         }
     }
 
-    pub fn update_repo<S, T, F>(&mut self, owner: S, name: T, update: F) -> Result<(), ()>
+    pub fn update_repo<S, T, F>(&self, owner: S, name: T, update: F) -> Result<(), ()>
     where
         S: AsRef<str>,
         T: AsRef<str>,
-        F: FnMut(&mut Repo),
+        F: FnOnce(&mut Repo),
     {
         match self {
             Provider::GitHub(github) => github.update_repo(owner, name, update),

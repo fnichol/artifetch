@@ -1,38 +1,40 @@
-use crate::{Provider, Registry};
 use actix_web::{middleware, web, App, HttpServer};
 use config::Config;
+use data::Data;
 use handlers::{assets, providers, releases, repos, targets};
 use std::io;
 use std::net::ToSocketAddrs;
+use updater::RepoUpdater;
 
 pub mod config;
-pub mod handlers;
-pub mod paths;
-
-#[derive(Debug)]
-pub struct Data {
-    registry: Registry,
-}
-
-impl Data {
-    pub fn provider<S: AsRef<str>>(&self, key: S) -> Option<&Provider> {
-        self.registry.get(key.as_ref())
-    }
-
-    pub fn provider_mut<S: AsRef<str>>(&mut self, key: S) -> Option<&mut Provider> {
-        self.registry.get_mut(key.as_ref())
-    }
-
-    pub fn providers(&self) -> impl Iterator<Item = &Provider> {
-        self.registry.iter()
-    }
-}
+mod data;
+mod handlers;
+mod paths;
+mod updater;
 
 pub fn run(config: Config) -> io::Result<()> {
     let addr = config.bind_addr;
     let data = web::Data::new(stub_data(config.into()));
 
-    start_server(addr, data)
+    let sys = actix_rt::System::new("ghrr");
+    schedule_updaters(data.clone())?;
+    start_server(addr, data)?;
+    sys.run()
+}
+
+fn schedule_updaters(data: web::Data<Data>) -> io::Result<()> {
+    for provider in data.providers() {
+        for repo in provider.repos() {
+            updater::spawn(RepoUpdater::new(
+                data.clone(),
+                provider.domain(),
+                repo.owner(),
+                repo.name(),
+            )?);
+        }
+    }
+
+    Ok(())
 }
 
 fn start_server<A: ToSocketAddrs>(addr: A, data: web::Data<Data>) -> io::Result<()> {
@@ -43,7 +45,9 @@ fn start_server<A: ToSocketAddrs>(addr: A, data: web::Data<Data>) -> io::Result<
             .configure(routes)
     })
     .bind(addr)?
-    .run()
+    .start();
+
+    Ok(())
 }
 
 fn routes(cfg: &mut web::ServiceConfig) {
