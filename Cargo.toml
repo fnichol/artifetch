@@ -1,5 +1,5 @@
 [package]
-name = "ghrr"
+name = "artifetch"
 version = "0.1.0"
 authors = ["Fletcher Nichol <fnichol@nichol.ca>"]
 edition = "2018"

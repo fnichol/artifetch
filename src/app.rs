@@ -16,7 +16,7 @@ pub fn run(config: Config) -> io::Result<()> {
     let addr = config.bind_addr;
     let data: web::Data<Data> = web::Data::new(config.into());
 
-    let sys = actix_rt::System::new("ghrr");
+    let sys = actix_rt::System::new(env!("CARGO_PKG_NAME"));
     schedule_updaters(data.clone())?;
     start_server(addr, data)?;
     sys.run()
