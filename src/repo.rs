@@ -1,4 +1,4 @@
-use crate::Release;
+use crate::{ETag, Release};
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -13,6 +13,8 @@ pub struct Repo {
     releases: HashMap<String, Release>,
     latest_id: Option<String>,
     updated: Option<Instant>,
+    releases_etag: Option<ETag>,
+    latest_etag: Option<ETag>,
     interval: Duration,
 }
 
@@ -28,6 +30,8 @@ impl Repo {
             releases: HashMap::new(),
             latest_id: None,
             updated: None,
+            releases_etag: None,
+            latest_etag: None,
             interval: Duration::from_secs(30),
         }
     }
@@ -49,8 +53,17 @@ impl Repo {
         self.releases.values()
     }
 
-    pub fn release<S: AsRef<str>>(&self, id: S) -> Option<&Release> {
-        self.releases.get(id.as_ref())
+    pub fn set_releases<V: Into<Vec<Release>>>(&mut self, vec: V) {
+        let mut releases = HashMap::new();
+        for release in vec.into() {
+            releases.insert(release.name().to_string(), release);
+        }
+
+        self.releases = releases;
+    }
+
+    pub fn release<N: AsRef<str>>(&self, name: N) -> Option<&Release> {
+        self.releases.get(name.as_ref())
     }
 
     pub fn latest_release(&self) -> Option<&Release> {
@@ -60,13 +73,24 @@ impl Repo {
         }
     }
 
-    pub fn set_releases<V: Into<Vec<Release>>>(&mut self, vec: V) {
-        let mut releases = HashMap::new();
-        for release in vec.into() {
-            releases.insert(release.id().to_string(), release);
-        }
+    pub fn set_latest_release<S: Into<String>>(&mut self, id: Option<S>) {
+        self.latest_id = id.map(|id| id.into());
+    }
 
-        self.releases = releases;
+    pub fn releases_etag(&self) -> Option<&ETag> {
+        self.releases_etag.as_ref()
+    }
+
+    pub fn set_releases_etag(&mut self, etag: Option<ETag>) {
+        self.releases_etag = etag;
+    }
+
+    pub fn latest_etag(&self) -> Option<&ETag> {
+        self.latest_etag.as_ref()
+    }
+
+    pub fn set_latest_etag(&mut self, etag: Option<ETag>) {
+        self.latest_etag = etag;
     }
 }
 

@@ -14,7 +14,7 @@ mod updater;
 
 pub fn run(config: Config) -> io::Result<()> {
     let addr = config.bind_addr;
-    let data = web::Data::new(stub_data(config.into()));
+    let data: web::Data<Data> = web::Data::new(config.into());
 
     let sys = actix_rt::System::new("ghrr");
     schedule_updaters(data.clone())?;
@@ -100,27 +100,4 @@ fn assets(cfg: &mut web::ServiceConfig) {
                 .service(web::resource("").route(web::get().to_async(assets::get_asset))),
         ),
     );
-}
-
-// TODO: remove
-fn stub_data(mut data: Data) -> Data {
-    use crate::{Asset, Release, Target};
-    use actix_web::http::Uri;
-
-    data.provider_mut("github.com")
-        .expect("provider should be registered")
-        .update_repo("fnichol", "names", |repo| {
-            let mut target = Target::new("darwin-x86_64");
-            target.set_assets(vec![Asset::new(
-                "names",
-                Uri::from_static("https://github.com/fnichol/names/releases/download/v0.11.0/names_0.11.0_darwin_x86_64.zip")
-            )]);
-            let mut release = Release::new("v0.11.0");
-            release.set_targets(vec![target, Target::new("linux-x86_64")]);
-
-            repo.set_releases(vec![release]);
-        })
-        .expect("repo should exist");
-
-    data
 }

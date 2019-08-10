@@ -4,7 +4,10 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 
 pub enum RegistryConfig {
-    GitHub { repos: Vec<Repo> },
+    GitHub {
+        repos: Vec<Repo>,
+        oauth_token: String,
+    },
 }
 
 pub struct Config {
@@ -17,10 +20,10 @@ impl From<Config> for Data {
         let mut registry = Registry::new();
         for (name, entry) in config.registry {
             match entry {
-                RegistryConfig::GitHub { repos } => {
+                RegistryConfig::GitHub { oauth_token, repos } => {
                     use crate::provider::github::GitHub;
 
-                    registry.register(Provider::GitHub(GitHub::new(name, repos)))
+                    registry.register(Provider::GitHub(GitHub::new(name, oauth_token, repos)))
                 }
             }
         }

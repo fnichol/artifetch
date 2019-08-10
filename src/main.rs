@@ -21,16 +21,20 @@ fn stub_config() -> Config {
     use ghrr::{app::config::RegistryConfig, Repo};
     use std::collections::HashMap;
 
+    let oauth_token = std::env::var("GITHUB_TOKEN").expect("Must set GITHUB_TOKEN");
+
     let bind_addr = "127.0.0.1:8080".parse().expect("addr should parse");
     let mut registry = HashMap::new();
     registry.insert(
         "github.com".to_string(),
         RegistryConfig::GitHub {
+            oauth_token,
             repos: vec![
-                Repo::new("fnichol", "mtoc"),
-                Repo::new("fnichol", "versio"),
-                Repo::new("fnichol", "libsh"),
-                Repo::new("fnichol", "names"),
+                // Repo::new("fnichol", "mtoc"),
+                // Repo::new("fnichol", "versio"),
+                // Repo::new("fnichol", "libsh"),
+                // Repo::new("fnichol", "names"),
+                Repo::new("fnichol", "testr"),
             ],
         },
     );

@@ -11,7 +11,7 @@ pub fn get_releases_txt(
     future::ok(
         HttpResponse::Ok().content_type("text/plain").body(
             repo.releases()
-                .map(|r| format!("{}\n", r))
+                .map(|r| format!("{}\n", r.name()))
                 .collect::<Vec<_>>()
                 .join(""),
         ),

@@ -1,4 +1,5 @@
 use crate::Repo;
+use futures::Future;
 use github::GitHub;
 use std::sync::Arc;
 
@@ -32,14 +33,13 @@ impl Provider {
         }
     }
 
-    pub fn update_repo<S, T, F>(&self, owner: S, name: T, update: F) -> Result<(), ()>
+    pub fn update_repo<O, N>(&self, owner: O, name: N) -> impl Future<Item = (), Error = ()>
     where
-        S: AsRef<str>,
-        T: AsRef<str>,
-        F: FnOnce(&mut Repo),
+        O: Into<String>,
+        N: Into<String>,
     {
         match self {
-            Provider::GitHub(github) => github.update_repo(owner, name, update),
+            Provider::GitHub(github) => github.update_repo(owner, name),
         }
     }
 }

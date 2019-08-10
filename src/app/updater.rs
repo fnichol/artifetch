@@ -1,7 +1,7 @@
 use super::Data;
 use crate::Repo;
 use actix_web::web;
-use futures::{future::Future, stream::Stream};
+use futures::{Future, Stream};
 use log::info;
 use rand::Rng;
 use std::fmt;
@@ -14,12 +14,11 @@ pub fn spawn(updater: RepoUpdater) {
     let initial_updater = updater.clone();
     actix_rt::spawn(
         Delay::new(Instant::now())
+            .map_err(|e| panic!("TODO: tokio_timer errored; err={:?}", e))
             .and_then(move |_| {
-                info!("populating; repo={}", &initial_updater);
-                initial_updater.update().expect("TODO: handle this");
-                Ok(())
-            })
-            .map_err(|e| panic!("TODO: updater errored; err={:?}", e)),
+                info!("populating repo; {}", &initial_updater);
+                initial_updater.update()
+            }),
     );
 
     actix_rt::spawn(
@@ -27,12 +26,11 @@ pub fn spawn(updater: RepoUpdater) {
             Instant::now() + rand_splay_delay() + updater.interval(),
             updater.interval(),
         )
+        .map_err(|e| panic!("TODO: tokio_timer errored; err={:?}", e))
         .for_each(move |_| {
-            info!("updating; repo={}", &updater);
-            updater.update().expect("TODO: handle this");
-            Ok(())
-        })
-        .map_err(|e| panic!("TODO: updater errored; err={:?}", e)),
+            info!("updating repo; {}", &updater);
+            updater.update()
+        }),
     );
 }
 
@@ -73,9 +71,11 @@ impl RepoUpdater {
         self.repo().interval()
     }
 
-    pub fn update(&self) -> io::Result<()> {
-        // self.provider().update_repo(&self.owner, &self.name, update)
-        Ok(())
+    pub fn update(&self) -> impl Future<Item = (), Error = ()> {
+        self.data
+            .provider(&self.domain)
+            .expect("provider domain should exist")
+            .update_repo(self.owner.clone(), self.name.clone())
     }
 
     fn repo(&self) -> Arc<Repo> {
@@ -89,6 +89,10 @@ impl RepoUpdater {
 
 impl fmt::Display for RepoUpdater {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}({}/{})", self.domain, self.owner, self.name)
+        write!(
+            f,
+            "domain={}, repo={}/{}",
+            self.domain, self.owner, self.name
+        )
     }
 }

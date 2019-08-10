@@ -12,7 +12,7 @@ pub fn get_assets_txt(
         HttpResponse::Ok().content_type("text/plain").body(
             target
                 .assets()
-                .map(|a| format!("{}\n", a))
+                .map(|a| format!("{}\n", a.name()))
                 .collect::<Vec<_>>()
                 .join(""),
         ),
