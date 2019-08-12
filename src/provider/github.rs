@@ -195,7 +195,10 @@ fn update_latest(
 ) -> impl Future<Item = (), Error = Error> {
     client
         .latest_release(owner.clone(), name.clone(), etag.as_ref())
-        .map_err(|err| Error::Client(Box::new(err)))
+        .map_err(|err| match err {
+            client::Error::NotFound => Error::LatestNotFound,
+            err => Error::Client(Box::new(err)),
+        })
         .and_then(move |response| match response {
             None => {
                 info!(

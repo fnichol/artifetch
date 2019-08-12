@@ -59,6 +59,7 @@ impl fmt::Display for Provider {
 pub enum Error {
     Client(Box<dyn error::Error + Send + Sync>),
     InvalidUri(String, uri::InvalidUri),
+    LatestNotFound,
     RepoNotFound,
 }
 
@@ -69,6 +70,7 @@ impl fmt::Display for Error {
             Error::InvalidUri(ref uri_str, ref err) => {
                 write!(f, "invalid uri {}: {}", uri_str, err)
             }
+            Error::LatestNotFound => f.write_str("latest release not found"),
             Error::RepoNotFound => f.write_str("repository not found"),
         }
     }
@@ -79,6 +81,7 @@ impl error::Error for Error {
         match self {
             Error::Client(ref err) => err.source(),
             Error::InvalidUri(_, ref err) => err.source(),
+            Error::LatestNotFound => None,
             Error::RepoNotFound => None,
         }
     }
