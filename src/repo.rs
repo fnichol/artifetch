@@ -2,8 +2,6 @@ use crate::{ETag, Release};
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::io;
-use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
@@ -106,24 +104,6 @@ impl Hash for Repo {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.owner.hash(state);
         self.name.hash(state);
-    }
-}
-
-impl FromStr for Repo {
-    type Err = io::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let parts: Vec<_> = s.split('/').collect();
-
-        if parts.len() == 1 {
-            panic!("TODO: repo missing /");
-        } else if parts.len() > 2 {
-            panic!("TODO: repo with too many /");
-        } else if parts.len() != 2 {
-            unreachable!("illegal repo string format");
-        }
-
-        Ok(Repo::new(parts[0], parts[1]))
     }
 }
 
