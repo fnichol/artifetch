@@ -2,7 +2,7 @@ use super::Data;
 use crate::{provider, Repo};
 use actix_web::web;
 use futures::{Future, Stream};
-use log::{info, warn};
+use log::{error, info, warn};
 use rand::Rng;
 use std::fmt;
 use std::io;
@@ -21,8 +21,7 @@ pub fn spawn(updater: RepoUpdater) {
                 info!("populating repo; {}", &initial_updater);
                 let uerr = initial_updater.clone();
                 initial_updater.update().map_err(move |err| {
-                    // TODO: should this be an error/fatal?
-                    warn!("update failed; {}, err={}", uerr, err);
+                    error!("populate failed; {}, err={}", uerr, err);
                 })
             }),
     );
@@ -37,7 +36,6 @@ pub fn spawn(updater: RepoUpdater) {
             info!("updating repo; {}", &updater);
             let uerr = updater.clone();
             updater.update().map_err(move |err| {
-                // TODO: should this be an error?
                 warn!("update failed; {}, err={}", uerr, err);
             })
         }),

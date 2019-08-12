@@ -333,7 +333,7 @@ impl fmt::Display for Error {
             }
             Error::Manifest(ref err) => err.fmt(f),
             Error::MissingResponseField(ref name) => write!(f, "missing reponse field: {}", name),
-            Error::NotFound => f.write_str("not found"),
+            Error::NotFound => f.write_str("github repository not found"),
             Error::Request(ref err) => err.fmt(f),
             Error::Response(ref err) => err.fmt(f),
             Error::Utf8(ref err) => err.fmt(f),

@@ -5,7 +5,7 @@ use futures::{
     future::{self, Either},
     Future,
 };
-use log::{info, warn};
+use log::info;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, RwLock};
@@ -96,17 +96,18 @@ impl GitHub {
         O: Into<String>,
         N: Into<String>,
     {
-        let owner = owner.into();
-        let name = name.into();
+        let owner: Arc<str> = owner.into().into();
+        let name: Arc<str> = name.into().into();
+        let domain: Arc<str> = self.domain.clone().into();
+
         let (releases_etag, latest_etag) = {
-            let repo = match self.repo(owner.as_str(), name.as_str()) {
+            let repo = match self.repo(&owner, &name) {
                 Some(repo) => repo,
                 None => return Either::A(future::err(Error::RepoNotFound)),
             };
 
             (repo.releases_etag().cloned(), repo.latest_etag().cloned())
         };
-        let domain = Arc::new(self.domain.clone());
 
         Either::B(
             update_releases(
@@ -120,7 +121,7 @@ impl GitHub {
             .join(update_latest(
                 self.client.clone(),
                 self.repos.clone(),
-                domain.clone(),
+                domain,
                 owner,
                 name,
                 latest_etag,
@@ -133,35 +134,21 @@ impl GitHub {
 fn update_releases(
     client: Arc<client::Client>,
     repos: RepoMap,
-    domain: Arc<String>,
-    owner: String,
-    name: String,
+    domain: Arc<str>,
+    owner: Arc<str>,
+    name: Arc<str>,
     etag: Option<ETag>,
 ) -> impl Future<Item = (), Error = Error> {
-    let (domain1, domain2) = (domain.clone(), domain.clone());
-
-    let repo = Arc::new(format!("{}/{}", &owner, &name));
-    let (repo_str1, repo_str2) = (repo.clone(), repo.clone());
-
     client
         .releases(owner.clone(), name.clone(), etag.as_ref())
-        .or_else(move |err| match err {
-            client::Error::NotFound => {
-                warn!(
-                    "no github repo found; domain={}, repo={}",
-                    domain1, repo_str1
-                );
-
-                future::ok(None)
-            }
-            err => future::err(Error::Client(Box::new(err))),
-        })
+        .map_err(|err| Error::Client(Box::new(err)))
         .and_then(move |response| match response {
             None => {
                 info!(
-                    "releases not modified; domain={}, repo={}, etag={}",
-                    domain2,
-                    repo_str2,
+                    "releases not modified; domain={}, repo={}/{}, etag={}",
+                    &domain,
+                    &owner,
+                    &name,
                     etag.as_ref().map(|e| e.as_ref()).unwrap_or_else(|| NO_ETAG)
                 );
 
@@ -171,28 +158,28 @@ fn update_releases(
                 let (next_etag, releases) = response.into_parts();
 
                 Either::B(
-                    process_releases(client.clone(), releases, owner.clone(), name.clone())
-                        .and_then(move |releases| {
-                            match repo_mut(repos, owner, name, |repo| {
-                                repo.set_releases_etag(next_etag.as_ref().cloned());
-                                repo.set_releases(releases);
-                            }) {
-                                Ok(_) => {
-                                    info!(
-                                        "releases updated; domain={}, repo={}, next_etag={}",
-                                        domain2,
-                                        repo_str2,
-                                        next_etag
-                                            .as_ref()
-                                            .map(|e| e.as_ref())
-                                            .unwrap_or_else(|| NO_ETAG)
-                                    );
+                    process_releases(client, releases, owner.clone(), name.clone()).and_then(
+                        move |releases| match repo_mut(repos, &owner, &name, |repo| {
+                            repo.set_releases_etag(next_etag.as_ref().cloned());
+                            repo.set_releases(releases);
+                        }) {
+                            Ok(_) => {
+                                info!(
+                                    "releases updated; domain={}, repo={}/{}, next_etag={}",
+                                    &domain,
+                                    &owner,
+                                    &name,
+                                    next_etag
+                                        .as_ref()
+                                        .map(|e| e.as_ref())
+                                        .unwrap_or_else(|| NO_ETAG)
+                                );
 
-                                    future::ok(())
-                                }
-                                Err(err) => future::err(err),
+                                future::ok(())
                             }
-                        }),
+                            Err(err) => future::err(err),
+                        },
+                    ),
                 )
             }
         })
@@ -201,35 +188,21 @@ fn update_releases(
 fn update_latest(
     client: Arc<client::Client>,
     repos: RepoMap,
-    domain: Arc<String>,
-    owner: String,
-    name: String,
+    domain: Arc<str>,
+    owner: Arc<str>,
+    name: Arc<str>,
     etag: Option<ETag>,
 ) -> impl Future<Item = (), Error = Error> {
-    let (domain1, domain2) = (domain.clone(), domain.clone());
-
-    let repo_str = Arc::new(format!("{}/{}", &owner, &name));
-    let (repo_str1, repo_str2) = (repo_str.clone(), repo_str.clone());
-
     client
         .latest_release(owner.clone(), name.clone(), etag.as_ref())
-        .or_else(move |err| match err {
-            client::Error::NotFound => {
-                warn!(
-                    "no latest release found; domain={}, repo={}",
-                    domain1, repo_str1
-                );
-
-                future::ok(None)
-            }
-            err => future::err(Error::Client(Box::new(err))),
-        })
+        .map_err(|err| Error::Client(Box::new(err)))
         .and_then(move |response| match response {
             None => {
                 info!(
-                    "latest release not modified; domain={}, repo={}, etag={}",
-                    domain2,
-                    repo_str2,
+                    "latest release not modified; domain={}, repo={}/{}, etag={}",
+                    &domain,
+                    &owner,
+                    &name,
                     etag.as_ref().map(|e| e.as_ref()).unwrap_or_else(|| NO_ETAG)
                 );
 
@@ -238,15 +211,16 @@ fn update_latest(
             Some(response) => {
                 let (next_etag, latest) = response.into_parts();
 
-                match repo_mut(repos, owner, name, |repo| {
+                match repo_mut(repos, &owner, &name, |repo| {
                     repo.set_latest_etag(next_etag.as_ref().cloned());
                     repo.set_latest_release(Some(latest.tag_name));
                 }) {
                     Ok(_) => {
                         info!(
-                            "latest release updated; domain={}, repo={}, next_etag={}",
-                            domain2,
-                            repo_str2,
+                            "latest release updated; domain={}, repo={}/{}, next_etag={}",
+                            &domain,
+                            &owner,
+                            &name,
                             next_etag
                                 .as_ref()
                                 .map(|e| e.as_ref())
@@ -264,8 +238,8 @@ fn update_latest(
 fn process_releases(
     client: Arc<client::Client>,
     releases: Vec<client::Release>,
-    owner: String,
-    name: String,
+    owner: Arc<str>,
+    name: Arc<str>,
 ) -> impl Future<Item = Vec<Release>, Error = Error> {
     let filtered_releases = releases
         .into_iter()
@@ -316,12 +290,14 @@ fn convert_release(
     let mut targets = HashMap::new();
     for manifest in manifests {
         for entry in manifest.entries {
+            let (entry_target, entry_asset) = (entry.target, entry.asset);
+
             let target = targets
-                .entry(entry.target.clone())
-                .or_insert_with(|| Target::new(entry.target.clone()));
+                .entry(entry_target.clone())
+                .or_insert_with(|| Target::new(entry_target));
             target.push_asset(Asset::new(
                 manifest.name.clone(),
-                uri_for_asset(&entry.asset, &release.assets)?,
+                uri_for_asset(&entry_asset, &release.assets)?,
             ));
         }
     }
@@ -337,15 +313,13 @@ fn convert_release(
     Ok(converted)
 }
 
-fn repo_mut<S, T, F>(repos: RepoMap, owner: S, name: T, update: F) -> Result<(), Error>
+fn repo_mut<F>(repos: RepoMap, owner: &str, name: &str, update: F) -> Result<(), Error>
 where
-    S: AsRef<str>,
-    T: AsRef<str>,
     F: FnOnce(&mut Repo),
 {
     let mut repo = repos
-        .get(owner.as_ref())
-        .and_then(|o| o.get(name.as_ref()))
+        .get(owner)
+        .and_then(|o| o.get(name))
         .map(|r| r.write().expect("lock poisoned"))
         .ok_or(Error::RepoNotFound)?;
 
