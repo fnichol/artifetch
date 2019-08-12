@@ -1,8 +1,8 @@
 use super::Data;
-use crate::Repo;
+use crate::{provider, Repo};
 use actix_web::web;
 use futures::{Future, Stream};
-use log::info;
+use log::{info, warn};
 use rand::Rng;
 use std::fmt;
 use std::io;
@@ -11,13 +11,19 @@ use std::time::{Duration, Instant};
 use tokio_timer::{Delay, Interval};
 
 pub fn spawn(updater: RepoUpdater) {
+    let updater = Arc::new(updater);
     let initial_updater = updater.clone();
+
     actix_rt::spawn(
         Delay::new(Instant::now())
             .map_err(|e| panic!("TODO: tokio_timer errored; err={:?}", e))
             .and_then(move |_| {
                 info!("populating repo; {}", &initial_updater);
-                initial_updater.update()
+                let uerr = initial_updater.clone();
+                initial_updater.update().map_err(move |err| {
+                    // TODO: should this be an error/fatal?
+                    warn!("update failed; {}, err={}", uerr, err);
+                })
             }),
     );
 
@@ -29,7 +35,11 @@ pub fn spawn(updater: RepoUpdater) {
         .map_err(|e| panic!("TODO: tokio_timer errored; err={:?}", e))
         .for_each(move |_| {
             info!("updating repo; {}", &updater);
-            updater.update()
+            let uerr = updater.clone();
+            updater.update().map_err(move |err| {
+                // TODO: should this be an error?
+                warn!("update failed; {}, err={}", uerr, err);
+            })
         }),
     );
 }
@@ -71,7 +81,7 @@ impl RepoUpdater {
         self.repo().interval()
     }
 
-    pub fn update(&self) -> impl Future<Item = (), Error = ()> {
+    pub fn update(&self) -> impl Future<Item = (), Error = provider::Error> {
         self.data
             .provider(&self.domain)
             .expect("provider domain should exist")

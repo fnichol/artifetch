@@ -315,6 +315,7 @@ pub enum Error {
     Deserialize(reqwest::Error),
     InvalidHeaderValue(&'static str, reqwest::header::InvalidHeaderValue),
     Manifest(ManifestEntryParseError),
+    MissingResponseField(&'static str),
     NotFound,
     Request(reqwest::Error),
     Response(reqwest::Error),
@@ -331,6 +332,7 @@ impl fmt::Display for Error {
                 write!(f, "valid header value for {}: {}", name, err)
             }
             Error::Manifest(ref err) => err.fmt(f),
+            Error::MissingResponseField(ref name) => write!(f, "missing reponse field: {}", name),
             Error::NotFound => f.write_str("not found"),
             Error::Request(ref err) => err.fmt(f),
             Error::Response(ref err) => err.fmt(f),
@@ -347,6 +349,7 @@ impl error::Error for Error {
             Error::Deserialize(ref err) => err.source(),
             Error::InvalidHeaderValue(_, ref err) => err.source(),
             Error::Manifest(ref err) => err.source(),
+            Error::MissingResponseField(_) => None,
             Error::NotFound => None,
             Error::Request(ref err) => err.source(),
             Error::Response(ref err) => err.source(),

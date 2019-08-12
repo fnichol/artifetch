@@ -1,3 +1,4 @@
+use super::Error;
 use crate::{Asset, ETag, Release, Repo, Target};
 use actix_web::http::{HttpTryFrom, Uri};
 use futures::{
@@ -22,6 +23,12 @@ pub struct GitHub {
     repos: RepoMap,
 }
 
+impl fmt::Display for GitHub {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "provider::github({})", &self.domain)
+    }
+}
+
 impl fmt::Debug for GitHub {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("GitHub")
@@ -32,7 +39,7 @@ impl fmt::Debug for GitHub {
 }
 
 impl GitHub {
-    pub fn build<S, O, R>(domain: S, oauth_token: O, iter: R) -> Result<Self, client::Error>
+    pub fn build<S, O, R>(domain: S, oauth_token: O, iter: R) -> Result<Self, Error>
     where
         S: Into<String>,
         O: AsRef<str>,
@@ -84,7 +91,7 @@ impl GitHub {
             .map(|r| r.read().expect("lock poisoned").clone())
     }
 
-    pub fn update_repo<O, N>(&self, owner: O, name: N) -> impl Future<Item = (), Error = ()>
+    pub fn update_repo<O, N>(&self, owner: O, name: N) -> impl Future<Item = (), Error = Error>
     where
         O: Into<String>,
         N: Into<String>,
@@ -92,50 +99,35 @@ impl GitHub {
         let owner = owner.into();
         let name = name.into();
         let (releases_etag, latest_etag) = {
-            let repo = self.repo(owner.as_str(), name.as_str()).unwrap_or_else(|| {
-                panic!("TODO: no such repo: {}/{}", owner.as_str(), name.as_str())
-            });
+            let repo = match self.repo(owner.as_str(), name.as_str()) {
+                Some(repo) => repo,
+                None => return Either::A(future::err(Error::RepoNotFound)),
+            };
 
             (repo.releases_etag().cloned(), repo.latest_etag().cloned())
         };
         let domain = Arc::new(self.domain.clone());
 
-        update_releases(
-            self.client.clone(),
-            self.repos.clone(),
-            domain.clone(),
-            owner.clone(),
-            name.clone(),
-            releases_etag,
+        Either::B(
+            update_releases(
+                self.client.clone(),
+                self.repos.clone(),
+                domain.clone(),
+                owner.clone(),
+                name.clone(),
+                releases_etag,
+            )
+            .join(update_latest(
+                self.client.clone(),
+                self.repos.clone(),
+                domain.clone(),
+                owner,
+                name,
+                latest_etag,
+            ))
+            .and_then(|_| future::ok(())),
         )
-        .join(update_latest(
-            self.client.clone(),
-            self.repos.clone(),
-            domain.clone(),
-            owner,
-            name,
-            latest_etag,
-        ))
-        .map_err(|err| panic!("TODO: ah crap; err={:?}", err))
-        .and_then(|_| Ok(()))
     }
-}
-
-fn repo_mut<S, T, F>(repos: RepoMap, owner: S, name: T, update: F) -> Result<(), ()>
-where
-    S: AsRef<str>,
-    T: AsRef<str>,
-    F: FnOnce(&mut Repo),
-{
-    let mut repo = repos
-        .get(owner.as_ref())
-        .and_then(|o| o.get(name.as_ref()))
-        .map(|r| r.write().expect("lock poisoned"))
-        .ok_or_else(|| panic!("TODO: no such repo: {}/{}", owner.as_ref(), name.as_ref()))?;
-
-    update(Arc::make_mut(&mut repo));
-
-    Ok(())
 }
 
 fn update_releases(
@@ -145,7 +137,7 @@ fn update_releases(
     owner: String,
     name: String,
     etag: Option<ETag>,
-) -> impl Future<Item = (), Error = client::Error> {
+) -> impl Future<Item = (), Error = Error> {
     let (domain1, domain2) = (domain.clone(), domain.clone());
 
     let repo = Arc::new(format!("{}/{}", &owner, &name));
@@ -155,10 +147,14 @@ fn update_releases(
         .releases(owner.clone(), name.clone(), etag.as_ref())
         .or_else(move |err| match err {
             client::Error::NotFound => {
-                warn!("no repo found; domain={}, repo={}", domain1, repo_str1);
-                Either::A(future::ok(None))
+                warn!(
+                    "no github repo found; domain={}, repo={}",
+                    domain1, repo_str1
+                );
+
+                future::ok(None)
             }
-            err => Either::B(future::err(err)),
+            err => future::err(Error::Client(Box::new(err))),
         })
         .and_then(move |response| match response {
             None => {
@@ -177,23 +173,25 @@ fn update_releases(
                 Either::B(
                     process_releases(client.clone(), releases, owner.clone(), name.clone())
                         .and_then(move |releases| {
-                            repo_mut(repos, owner, name, |repo| {
+                            match repo_mut(repos, owner, name, |repo| {
                                 repo.set_releases_etag(next_etag.as_ref().cloned());
                                 repo.set_releases(releases);
-                            })
-                            .expect("TODO: handle this");
+                            }) {
+                                Ok(_) => {
+                                    info!(
+                                        "releases updated; domain={}, repo={}, next_etag={}",
+                                        domain2,
+                                        repo_str2,
+                                        next_etag
+                                            .as_ref()
+                                            .map(|e| e.as_ref())
+                                            .unwrap_or_else(|| NO_ETAG)
+                                    );
 
-                            info!(
-                                "releases updated; domain={}, repo={}, next_etag={}",
-                                domain2,
-                                repo_str2,
-                                next_etag
-                                    .as_ref()
-                                    .map(|e| e.as_ref())
-                                    .unwrap_or_else(|| NO_ETAG)
-                            );
-
-                            future::ok(())
+                                    future::ok(())
+                                }
+                                Err(err) => future::err(err),
+                            }
                         }),
                 )
             }
@@ -207,7 +205,7 @@ fn update_latest(
     owner: String,
     name: String,
     etag: Option<ETag>,
-) -> impl Future<Item = (), Error = client::Error> {
+) -> impl Future<Item = (), Error = Error> {
     let (domain1, domain2) = (domain.clone(), domain.clone());
 
     let repo_str = Arc::new(format!("{}/{}", &owner, &name));
@@ -221,9 +219,10 @@ fn update_latest(
                     "no latest release found; domain={}, repo={}",
                     domain1, repo_str1
                 );
-                Either::A(future::ok(None))
+
+                future::ok(None)
             }
-            err => Either::B(future::err(err)),
+            err => future::err(Error::Client(Box::new(err))),
         })
         .and_then(move |response| match response {
             None => {
@@ -234,28 +233,30 @@ fn update_latest(
                     etag.as_ref().map(|e| e.as_ref()).unwrap_or_else(|| NO_ETAG)
                 );
 
-                Ok(())
+                future::ok(())
             }
             Some(response) => {
                 let (next_etag, latest) = response.into_parts();
 
-                repo_mut(repos, owner, name, |repo| {
+                match repo_mut(repos, owner, name, |repo| {
                     repo.set_latest_etag(next_etag.as_ref().cloned());
                     repo.set_latest_release(Some(latest.tag_name));
-                })
-                .expect("TODO: handle this");
+                }) {
+                    Ok(_) => {
+                        info!(
+                            "latest release updated; domain={}, repo={}, next_etag={}",
+                            domain2,
+                            repo_str2,
+                            next_etag
+                                .as_ref()
+                                .map(|e| e.as_ref())
+                                .unwrap_or_else(|| NO_ETAG)
+                        );
 
-                info!(
-                    "latest release updated; domain={}, repo={}, next_etag={}",
-                    domain2,
-                    repo_str2,
-                    next_etag
-                        .as_ref()
-                        .map(|e| e.as_ref())
-                        .unwrap_or_else(|| NO_ETAG)
-                );
-
-                Ok(())
+                        future::ok(())
+                    }
+                    Err(err) => future::err(err),
+                }
             }
         })
 }
@@ -265,7 +266,7 @@ fn process_releases(
     releases: Vec<client::Release>,
     owner: String,
     name: String,
-) -> impl Future<Item = Vec<Release>, Error = client::Error> {
+) -> impl Future<Item = Vec<Release>, Error = Error> {
     let filtered_releases = releases
         .into_iter()
         .filter(|rel| !rel.draft && !rel.prerelease)
@@ -279,57 +280,88 @@ fn process_releases(
                 .iter()
                 .filter(|asset| asset.name.ends_with(MANIFEST_EXT))
                 .map(|asset| {
-                    client.manifest(
-                        owner.clone(),
-                        name.clone(),
-                        asset.id,
-                        asset.name.trim_end_matches(MANIFEST_EXT).to_string(),
-                    )
+                    client
+                        .manifest(
+                            owner.clone(),
+                            name.clone(),
+                            asset.id,
+                            asset.name.trim_end_matches(MANIFEST_EXT).to_string(),
+                        )
+                        .map_err(|err| Error::Client(Box::new(err)))
                 })
                 .collect::<Vec<_>>(),
         ));
     }
 
-    future::join_all(all_manifests).and_then(move |all_manifests| {
-        let mut converted_releases = Vec::new();
-
-        for (release, manifests) in filtered_releases.into_iter().zip(all_manifests) {
-            let mut targets = HashMap::new();
-
-            for manifest in manifests {
-                for entry in manifest.entries {
-                    let target = targets
-                        .entry(entry.target.clone())
-                        .or_insert_with(|| Target::new(entry.target.clone()));
-                    target.push_asset(Asset::new(
-                        manifest.name.clone(),
-                        uri_for_asset(&entry.asset, &release.assets),
-                    ));
-                }
-            }
-
-            let mut converted = Release::from(release);
-            converted.set_targets(
-                targets
-                    .into_iter()
-                    .map(|(_, value)| value)
-                    .collect::<Vec<_>>(),
-            );
-            converted_releases.push(converted);
-        }
-
-        future::ok(converted_releases)
-    })
+    future::join_all(all_manifests)
+        .and_then(move |all_manifests| convert_releases(filtered_releases, all_manifests))
 }
 
-fn uri_for_asset(gh_name: &str, assets: &[client::Asset]) -> Uri {
+fn convert_releases(
+    client_releases: Vec<client::Release>,
+    client_all_manifests: Vec<Vec<client::Manifest>>,
+) -> Result<Vec<Release>, Error> {
+    let mut releases = Vec::new();
+    for (release, manifests) in client_releases.into_iter().zip(client_all_manifests) {
+        releases.push(convert_release(release, manifests)?);
+    }
+
+    Ok(releases)
+}
+
+fn convert_release(
+    release: client::Release,
+    manifests: Vec<client::Manifest>,
+) -> Result<Release, Error> {
+    let mut targets = HashMap::new();
+    for manifest in manifests {
+        for entry in manifest.entries {
+            let target = targets
+                .entry(entry.target.clone())
+                .or_insert_with(|| Target::new(entry.target.clone()));
+            target.push_asset(Asset::new(
+                manifest.name.clone(),
+                uri_for_asset(&entry.asset, &release.assets)?,
+            ));
+        }
+    }
+
+    let mut converted = Release::from(release);
+    converted.set_targets(
+        targets
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect::<Vec<_>>(),
+    );
+
+    Ok(converted)
+}
+
+fn repo_mut<S, T, F>(repos: RepoMap, owner: S, name: T, update: F) -> Result<(), Error>
+where
+    S: AsRef<str>,
+    T: AsRef<str>,
+    F: FnOnce(&mut Repo),
+{
+    let mut repo = repos
+        .get(owner.as_ref())
+        .and_then(|o| o.get(name.as_ref()))
+        .map(|r| r.write().expect("lock poisoned"))
+        .ok_or(Error::RepoNotFound)?;
+
+    update(Arc::make_mut(&mut repo));
+
+    Ok(())
+}
+
+fn uri_for_asset(gh_name: &str, assets: &[client::Asset]) -> Result<Uri, Error> {
     let uri_str = assets
         .iter()
         .find(|a| a.name == gh_name)
         .map(|a| &a.browser_download_url)
-        .expect("TODO: asset should exist");
+        .ok_or_else(|| client::Error::MissingResponseField("browser_download_url"))?;
 
-    Uri::try_from(uri_str).expect("TODO: URI should parse")
+    Uri::try_from(uri_str).map_err(|err| Error::InvalidUri(uri_str.to_string(), err))
 }
 
 impl From<client::Release> for Release {

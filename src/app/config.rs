@@ -1,5 +1,5 @@
 use crate::app::Data;
-use crate::{Provider, Registry, Repo};
+use crate::{provider, Provider, Registry, Repo};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
@@ -17,7 +17,7 @@ pub struct Config {
 }
 
 impl TryFrom<Config> for Data {
-    type Error = crate::provider::github::client::Error;
+    type Error = provider::Error;
 
     fn try_from(config: Config) -> Result<Self, Self::Error> {
         let mut registry = Registry::new();
