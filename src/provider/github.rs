@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, RwLock};
 
-mod client;
+pub mod client;
 
 const NO_ETAG: &str = "<none>";
 const MANIFEST_EXT: &str = ".manifest.txt";
@@ -32,7 +32,7 @@ impl fmt::Debug for GitHub {
 }
 
 impl GitHub {
-    pub fn new<S, O, R>(domain: S, oauth_token: O, iter: R) -> Self
+    pub fn build<S, O, R>(domain: S, oauth_token: O, iter: R) -> Result<Self, client::Error>
     where
         S: Into<String>,
         O: AsRef<str>,
@@ -40,8 +40,11 @@ impl GitHub {
     {
         let domain = domain.into();
         let client = match domain.as_str() {
-            "github.com" => Arc::new(client::Client::new(oauth_token)),
-            enterprise => Arc::new(client::Client::for_enterprise(enterprise, oauth_token)),
+            "github.com" => Arc::new(client::Client::build(oauth_token)?),
+            enterprise => Arc::new(client::Client::build_for_enterprise(
+                enterprise,
+                oauth_token,
+            )?),
         };
         let mut repos = HashMap::new();
         for repo in iter {
@@ -52,11 +55,11 @@ impl GitHub {
         }
         let repos = Arc::new(repos);
 
-        GitHub {
+        Ok(GitHub {
             domain,
             client,
             repos,
-        }
+        })
     }
 
     pub fn domain(&self) -> &str {

@@ -1,6 +1,7 @@
 use crate::app::Data;
 use crate::{Provider, Registry, Repo};
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::net::SocketAddr;
 
 pub enum RegistryConfig {
@@ -15,19 +16,21 @@ pub struct Config {
     pub registry: HashMap<String, RegistryConfig>,
 }
 
-impl From<Config> for Data {
-    fn from(config: Config) -> Self {
+impl TryFrom<Config> for Data {
+    type Error = crate::provider::github::client::Error;
+
+    fn try_from(config: Config) -> Result<Self, Self::Error> {
         let mut registry = Registry::new();
         for (name, entry) in config.registry {
             match entry {
                 RegistryConfig::GitHub { oauth_token, repos } => {
                     use crate::provider::github::GitHub;
 
-                    registry.register(Provider::GitHub(GitHub::new(name, oauth_token, repos)))
+                    registry.register(Provider::GitHub(GitHub::build(name, oauth_token, repos)?))
                 }
             }
         }
 
-        Self::new(registry)
+        Ok(Self::new(registry))
     }
 }

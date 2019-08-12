@@ -3,30 +3,18 @@ use futures::{
     future::{self, Either},
     Future, Stream,
 };
+use log::{error, warn};
 use reqwest::{
     header,
     r#async::{Chunk, Client as ReqwestClient, Decoder, Response as ReqwestResponse},
     StatusCode,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::io;
+use std::error;
+use std::fmt;
 use std::str::{self, FromStr};
 
 const DEFAULT_DOMAIN: &str = "api.github.com";
-
-#[derive(Debug)]
-pub enum Error {
-    Api(RequestError),
-    Request(reqwest::Error),
-    Deserialize(reqwest::Error),
-    NotFound,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct RequestError {
-    pub success: bool,
-    pub message: String,
-}
 
 #[derive(Debug)]
 pub struct Response<T> {
@@ -76,16 +64,13 @@ pub struct Manifest {
 }
 
 impl Manifest {
-    pub fn from_bytes<N, I>(name: N, input: I) -> Result<Self, io::Error>
+    pub fn from_bytes<N, I>(name: N, input: I) -> Result<Self, Error>
     where
         N: Into<String>,
         I: AsRef<[u8]>,
     {
         let mut entries = Vec::new();
-        for line in str::from_utf8(input.as_ref())
-            .map_err(|err| io::Error::new(io::ErrorKind::Other, err))?
-            .lines()
-        {
+        for line in str::from_utf8(input.as_ref())?.lines() {
             entries.push(line.parse()?);
         }
 
@@ -103,16 +88,18 @@ pub struct ManifestEntry {
 }
 
 impl FromStr for ManifestEntry {
-    type Err = io::Error;
+    type Err = ManifestEntryParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let fields = s.split_ascii_whitespace().collect::<Vec<_>>();
         let num_fields = fields.len();
 
         if num_fields == 1 {
-            panic!("TODO: missing whitespace delimiter");
+            Err(ManifestEntryParseError(
+                "missing whitespace delimiter between fields",
+            ))
         } else if num_fields > 2 {
-            panic!("TODO: too many fields");
+            Err(ManifestEntryParseError("more than two fields"))
         } else if num_fields != 2 {
             unreachable!("invalid number of fields");
         } else {
@@ -129,20 +116,20 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new<O: AsRef<str>>(oauth_token: O) -> Self {
-        Self {
-            inner: HttpClient::new(oauth_token),
-        }
+    pub fn build<O: AsRef<str>>(oauth_token: O) -> Result<Self, Error> {
+        Ok(Self {
+            inner: HttpClient::build(oauth_token)?,
+        })
     }
 
-    pub fn for_enterprise<D, O>(domain: D, oauth_token: O) -> Self
+    pub fn build_for_enterprise<D, O>(domain: D, oauth_token: O) -> Result<Self, Error>
     where
         D: AsRef<str>,
         O: AsRef<str>,
     {
-        Self {
-            inner: HttpClient::for_enterprise(domain, oauth_token),
-        }
+        Ok(Self {
+            inner: HttpClient::build_for_enterprise(domain, oauth_token)?,
+        })
     }
 
     pub fn releases<O, N>(
@@ -205,10 +192,7 @@ impl Client {
                 ),
                 None::<&str>,
             )
-            .and_then(|bytes| {
-                Manifest::from_bytes(asset_name, bytes)
-                    .map_err(|err| panic!("TODO handle conversion to Manifest; err={:?}", err))
-            })
+            .and_then(|bytes| Manifest::from_bytes(asset_name, bytes))
     }
 }
 
@@ -218,22 +202,22 @@ struct HttpClient {
 }
 
 impl HttpClient {
-    fn new<O: AsRef<str>>(oauth_token: O) -> Self {
-        Self {
-            inner: reqwest_client(oauth_token),
+    fn build<O: AsRef<str>>(oauth_token: O) -> Result<Self, Error> {
+        Ok(Self {
+            inner: reqwest_client(oauth_token)?,
             domain: DEFAULT_DOMAIN.to_string(),
-        }
+        })
     }
 
-    fn for_enterprise<D, O>(domain: D, oauth_token: O) -> Self
+    fn build_for_enterprise<D, O>(domain: D, oauth_token: O) -> Result<Self, Error>
     where
         D: AsRef<str>,
         O: AsRef<str>,
     {
-        Self {
-            inner: reqwest_client(oauth_token),
+        Ok(Self {
+            inner: reqwest_client(oauth_token)?,
             domain: format!("{}/api/v3", domain.as_ref()),
-        }
+        })
     }
 
     fn get<P, Q, T>(
@@ -249,14 +233,14 @@ impl HttpClient {
     {
         let mut req = self.inner.get(&self.url(path, query));
         if let Some(etag) = etag {
-            req = req.header(
-                header::IF_NONE_MATCH,
-                header::HeaderValue::from_str(etag.as_ref())
-                    .expect("TODO: handle InvalidHeaderValue"),
-            );
+            let val = match header::HeaderValue::from_str(etag.as_ref()) {
+                Ok(val) => val,
+                Err(err) => return Either::A(future::err(Error::InvalidHeaderValue("etag", err))),
+            };
+            req = req.header(header::IF_NONE_MATCH, val);
         }
 
-        req.send().map_err(Error::Request).and_then(|mut response| {
+        Either::B(req.send().map_err(Error::Request).and_then(|mut response| {
             if response.status() == StatusCode::NOT_MODIFIED {
                 Either::A(future::ok(None))
             } else if response.status().is_success() {
@@ -278,7 +262,7 @@ impl HttpClient {
                         .and_then(|err| future::err(Error::Api(err))),
                 )))
             }
-        })
+        }))
     }
 
     fn get_body<P, Q>(&self, path: P, query: Option<Q>) -> impl Future<Item = Chunk, Error = Error>
@@ -297,7 +281,7 @@ impl HttpClient {
             .and_then(|mut response| {
                 if response.status().is_success() {
                     let body = std::mem::replace(response.body_mut(), Decoder::empty());
-                    Either::A(body.concat2().map_err(|err| panic!("TODO: err={:?}", err)))
+                    Either::A(body.concat2().map_err(Error::Response))
                 } else {
                     Either::B(
                         response
@@ -324,7 +308,95 @@ impl HttpClient {
     }
 }
 
-fn reqwest_client<O: AsRef<str>>(oauth_token: O) -> ReqwestClient {
+#[derive(Debug)]
+pub enum Error {
+    Api(RequestError),
+    Builder(reqwest::Error),
+    Deserialize(reqwest::Error),
+    InvalidHeaderValue(&'static str, reqwest::header::InvalidHeaderValue),
+    Manifest(ManifestEntryParseError),
+    NotFound,
+    Request(reqwest::Error),
+    Response(reqwest::Error),
+    Utf8(str::Utf8Error),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::Api(ref err) => err.fmt(f),
+            Error::Builder(ref err) => err.fmt(f),
+            Error::Deserialize(ref err) => err.fmt(f),
+            Error::InvalidHeaderValue(ref name, ref err) => {
+                write!(f, "valid header value for {}: {}", name, err)
+            }
+            Error::Manifest(ref err) => err.fmt(f),
+            Error::NotFound => f.write_str("not found"),
+            Error::Request(ref err) => err.fmt(f),
+            Error::Response(ref err) => err.fmt(f),
+            Error::Utf8(ref err) => err.fmt(f),
+        }
+    }
+}
+
+impl error::Error for Error {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match self {
+            Error::Api(ref err) => err.source(),
+            Error::Builder(ref err) => err.source(),
+            Error::Deserialize(ref err) => err.source(),
+            Error::InvalidHeaderValue(_, ref err) => err.source(),
+            Error::Manifest(ref err) => err.source(),
+            Error::NotFound => None,
+            Error::Request(ref err) => err.source(),
+            Error::Response(ref err) => err.source(),
+            Error::Utf8(ref err) => err.source(),
+        }
+    }
+}
+
+impl From<str::Utf8Error> for Error {
+    fn from(err: str::Utf8Error) -> Self {
+        Error::Utf8(err)
+    }
+}
+
+impl From<ManifestEntryParseError> for Error {
+    fn from(err: ManifestEntryParseError) -> Self {
+        Error::Manifest(err)
+    }
+}
+
+#[derive(Debug)]
+pub struct ManifestEntryParseError(&'static str);
+
+impl fmt::Display for ManifestEntryParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl error::Error for ManifestEntryParseError {}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct RequestError {
+    pub success: bool,
+    pub message: String,
+}
+
+impl fmt::Display for RequestError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "request error: {} (success={})",
+            self.message, self.success
+        )
+    }
+}
+
+impl error::Error for RequestError {}
+
+fn reqwest_client<O: AsRef<str>>(oauth_token: O) -> Result<ReqwestClient, Error> {
     let mut headers = header::HeaderMap::new();
     headers.insert(
         header::ACCEPT,
@@ -333,21 +405,33 @@ fn reqwest_client<O: AsRef<str>>(oauth_token: O) -> ReqwestClient {
     headers.insert(
         header::AUTHORIZATION,
         header::HeaderValue::from_str(&format!("token {}", oauth_token.as_ref()))
-            .expect("TODO: handle InvalidHeaderValue"),
+            .map_err(|err| Error::InvalidHeaderValue("authorization", err))?,
     );
 
     ReqwestClient::builder()
         .default_headers(headers)
         .build()
-        .expect("TODO: handle TLS backend failure")
+        .map_err(Error::Builder)
 }
 
 fn response_etag(response: &ReqwestResponse) -> Option<ETag> {
-    response.headers().get(header::ETAG).map(|header| {
-        header
-            .to_str()
-            .expect("TODO: header be utf8 clean")
-            .parse()
-            .expect("TODO: HeaderValue should parse into ETag")
-    })
+    match response.headers().get(header::ETAG) {
+        Some(header) => match header.to_str() {
+            Ok(s) => match s.parse() {
+                Ok(etag) => Some(etag),
+                Err(err) => {
+                    error!("etag header could not be parsed; err={}", err);
+                    None
+                }
+            },
+            Err(err) => {
+                error!("etag header was not utf8 clean; err={}", err);
+                None
+            }
+        },
+        None => {
+            warn!("etag header not found in response and was expected");
+            None
+        }
+    }
 }

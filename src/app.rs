@@ -2,6 +2,7 @@ use actix_web::{middleware, web, App, HttpServer};
 use config::Config;
 use data::Data;
 use handlers::{assets, providers, releases, repos, targets};
+use std::convert::TryInto;
 use std::io;
 use std::net::ToSocketAddrs;
 use updater::RepoUpdater;
@@ -14,7 +15,7 @@ mod updater;
 
 pub fn run(config: Config) -> io::Result<()> {
     let addr = config.bind_addr;
-    let data: web::Data<Data> = web::Data::new(config.into());
+    let data: web::Data<Data> = web::Data::new(config.try_into().expect("TODO: handle this"));
 
     let sys = actix_rt::System::new(env!("CARGO_PKG_NAME"));
     schedule_updaters(data.clone())?;
