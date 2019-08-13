@@ -6,14 +6,12 @@ pub fn get_releases_txt(
     path: web::Path<paths::Releases>,
     data: web::Data<app::Data>,
 ) -> impl Future<Item = HttpResponse, Error = Error> {
-    let repo = paths::get_repo(path.as_ref(), &data).expect("TODO: handle this");
-
-    future::ok(
+    future::result(paths::get_repo(path.as_ref(), &data)).and_then(|repo| {
         HttpResponse::Ok().content_type("text/plain").body(
             repo.releases()
                 .map(|r| format!("{}\n", r.name()))
                 .collect::<Vec<_>>()
                 .join(""),
-        ),
-    )
+        )
+    })
 }

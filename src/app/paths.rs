@@ -1,5 +1,5 @@
 use crate::app;
-use actix_web::web;
+use actix_web::{error, web, Error};
 use owning_ref::OwningRef;
 use serde::{de, Deserialize, Deserializer};
 use std::fmt;
@@ -216,24 +216,26 @@ pub type AssetRef = OwningRef<TargetRef, crate::Asset>;
 pub fn get_provider<'a, P>(
     path: &P,
     data: &'a web::Data<app::Data>,
-) -> Result<&'a crate::Provider, ()>
+) -> Result<&'a crate::Provider, Error>
 where
     P: ProviderPath,
 {
     data.provider(path.provider())
-        .ok_or_else(|| panic!("TODO: no such provider: {}", path.provider()))
+        .ok_or_else(|| error::ErrorNotFound(format!("provider not found: {}", path.provider())))
 }
 
-pub fn get_repo<P>(path: &P, data: &web::Data<app::Data>) -> Result<Arc<crate::Repo>, ()>
+pub fn get_repo<P>(path: &P, data: &web::Data<app::Data>) -> Result<Arc<crate::Repo>, Error>
 where
     P: RepoPath + ProviderPath,
 {
     get_provider(path, data)?
         .repo(path.owner(), path.repo())
-        .ok_or_else(|| panic!("TODO: no such repo: {}/{}", path.owner(), path.repo()))
+        .ok_or_else(|| {
+            error::ErrorNotFound(format!("repo not found: {}/{}", path.owner(), path.repo()))
+        })
 }
 
-pub fn get_release<P>(path: &P, data: &web::Data<app::Data>) -> Result<ReleaseRef, ()>
+pub fn get_release<P>(path: &P, data: &web::Data<app::Data>) -> Result<ReleaseRef, Error>
 where
     P: ReleasePath + RepoPath,
 {
@@ -242,28 +244,28 @@ where
             Version::Latest => repo.latest_release(),
             Version::Version(version) => repo.release(version),
         }
-        .ok_or_else(|| panic!("TODO: no such release: {}", path.version()))
+        .ok_or_else(|| error::ErrorNotFound(format!("release not found: {}", path.version())))
     })
 }
 
-pub fn get_target<P>(path: &P, data: &web::Data<app::Data>) -> Result<TargetRef, ()>
+pub fn get_target<P>(path: &P, data: &web::Data<app::Data>) -> Result<TargetRef, Error>
 where
     P: TargetPath + ReleasePath,
 {
     OwningRef::new(get_release(path, data)?).try_map(|release| {
         release
             .target(path.target())
-            .ok_or_else(|| panic!("TODO: no such target: {}", path.target()))
+            .ok_or_else(|| error::ErrorNotFound(format!("target not found: {}", path.target())))
     })
 }
 
-pub fn get_asset<P>(path: &P, data: &web::Data<app::Data>) -> Result<AssetRef, ()>
+pub fn get_asset<P>(path: &P, data: &web::Data<app::Data>) -> Result<AssetRef, Error>
 where
     P: AssetPath + TargetPath,
 {
     OwningRef::new(get_target(path, data)?).try_map(|target| {
         target
             .asset(path.asset())
-            .ok_or_else(|| panic!("TODO: no such asset: {}", path.asset()))
+            .ok_or_else(|| error::ErrorNotFound(format!("asset not found: {}\n", path.asset())))
     })
 }
