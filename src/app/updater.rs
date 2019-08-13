@@ -15,7 +15,9 @@ pub fn spawn(updater: RepoUpdater) {
 
     actix_rt::spawn(
         Delay::new(Instant::now())
-            .map_err(|e| panic!("TODO: tokio_timer errored; err={:?}", e))
+            .map_err(|err| {
+                error!("initial timer errored; err={}", err);
+            })
             .and_then(move |_| {
                 info!("populating repo; {}", &initial_updater);
                 let uerr = initial_updater.clone();
@@ -30,7 +32,9 @@ pub fn spawn(updater: RepoUpdater) {
             Instant::now() + rand_splay_delay() + updater.interval(),
             updater.interval(),
         )
-        .map_err(|e| panic!("TODO: tokio_timer errored; err={:?}", e))
+        .map_err(|err| {
+            error!("timer errored; err={}", err);
+        })
         .for_each(move |_| {
             info!("updating repo; {}", &updater);
             let uerr = updater.clone();
