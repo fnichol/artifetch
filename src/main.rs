@@ -1,5 +1,4 @@
-use artifetch::app::{self, config::Config};
-use std::io;
+use artifetch::app::{self, config::Config, Error};
 use std::process;
 
 fn main() {
@@ -9,7 +8,7 @@ fn main() {
     }
 }
 
-fn try_main() -> io::Result<()> {
+fn try_main() -> Result<(), Error> {
     std::env::set_var(
         "RUST_LOG",
         "actix_server=info,actix_web=info,artifetch=info",

@@ -5,7 +5,6 @@ use futures::{Future, Stream};
 use log::{error, info, warn};
 use rand::Rng;
 use std::fmt;
-use std::io;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio_timer::{Delay, Interval};
@@ -57,7 +56,7 @@ pub struct RepoUpdater {
 }
 
 impl RepoUpdater {
-    pub fn new<D, O, N>(data: web::Data<Data>, domain: D, owner: O, name: N) -> io::Result<Self>
+    pub fn new<D, O, N>(data: web::Data<Data>, domain: D, owner: O, name: N) -> Self
     where
         D: Into<String>,
         O: Into<String>,
@@ -67,12 +66,12 @@ impl RepoUpdater {
         let owner = owner.into();
         let name = name.into();
 
-        Ok(Self {
+        Self {
             data,
             domain,
             owner,
             name,
-        })
+        }
     }
 
     pub fn interval(&self) -> Duration {

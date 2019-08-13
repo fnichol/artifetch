@@ -1,8 +1,11 @@
+use crate::provider;
 use actix_web::{middleware, web, App, HttpServer};
 use config::Config;
 use data::Data;
 use handlers::{assets, providers, releases, repos, targets};
 use std::convert::TryInto;
+use std::error;
+use std::fmt;
 use std::io;
 use std::net::ToSocketAddrs;
 use updater::RepoUpdater;
@@ -13,17 +16,17 @@ mod handlers;
 mod paths;
 mod updater;
 
-pub fn run(config: Config) -> io::Result<()> {
+pub fn run(config: Config) -> Result<(), Error> {
     let addr = config.bind_addr;
-    let data: web::Data<Data> = web::Data::new(config.try_into().expect("TODO: handle this"));
+    let data: web::Data<Data> = web::Data::new(config.try_into()?);
 
     let sys = actix_rt::System::new(env!("CARGO_PKG_NAME"));
-    schedule_updaters(data.clone())?;
+    schedule_updaters(data.clone());
     start_server(addr, data)?;
-    sys.run()
+    Ok(sys.run()?)
 }
 
-fn schedule_updaters(data: web::Data<Data>) -> io::Result<()> {
+fn schedule_updaters(data: web::Data<Data>) {
     for provider in data.providers() {
         for repo in provider.repos() {
             updater::spawn(RepoUpdater::new(
@@ -31,14 +34,12 @@ fn schedule_updaters(data: web::Data<Data>) -> io::Result<()> {
                 provider.domain(),
                 repo.owner(),
                 repo.name(),
-            )?);
+            ));
         }
     }
-
-    Ok(())
 }
 
-fn start_server<A: ToSocketAddrs>(addr: A, data: web::Data<Data>) -> io::Result<()> {
+fn start_server<A: ToSocketAddrs>(addr: A, data: web::Data<Data>) -> Result<(), Error> {
     HttpServer::new(move || {
         App::new()
             .wrap(middleware::Logger::default())
@@ -101,4 +102,40 @@ fn assets(cfg: &mut web::ServiceConfig) {
                 .service(web::resource("").route(web::get().to_async(assets::get_asset))),
         ),
     );
+}
+
+#[derive(Debug)]
+pub enum Error {
+    Config(provider::Error),
+    ServerInit(io::Error),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::Config(ref err) => err.fmt(f),
+            Error::ServerInit(ref err) => err.fmt(f),
+        }
+    }
+}
+
+impl error::Error for Error {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match self {
+            Error::Config(ref err) => err.source(),
+            Error::ServerInit(ref err) => err.source(),
+        }
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Self {
+        Error::ServerInit(err)
+    }
+}
+
+impl From<provider::Error> for Error {
+    fn from(err: provider::Error) -> Self {
+        Error::Config(err)
+    }
 }
