@@ -1,16 +1,17 @@
 use crate::provider;
 use actix_web::{middleware, web, App, HttpServer};
-use config::Config;
 use data::Data;
 use handlers::{assets, providers, releases, repos, targets};
-use std::convert::TryInto;
+use std::convert::TryFrom;
 use std::error;
 use std::fmt;
 use std::io;
 use std::net::ToSocketAddrs;
 use updater::RepoUpdater;
 
-pub mod config;
+pub use config::{config, Config};
+
+mod config;
 mod data;
 mod handlers;
 mod paths;
@@ -18,7 +19,7 @@ mod updater;
 
 pub fn run(config: Config) -> Result<(), Error> {
     let addr = config.bind_addr;
-    let data: web::Data<Data> = web::Data::new(config.try_into()?);
+    let data = web::Data::new(Data::try_from(config)?);
 
     let sys = actix_rt::System::new(env!("CARGO_PKG_NAME"));
     schedule_updaters(data.clone());
@@ -107,6 +108,8 @@ fn assets(cfg: &mut web::ServiceConfig) {
 #[derive(Debug)]
 pub enum Error {
     Config(provider::Error),
+    ConfigLoad(Box<dyn error::Error + Send + Sync>),
+    RepoConfig(&'static str),
     ServerInit(io::Error),
 }
 
@@ -114,6 +117,8 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Error::Config(ref err) => err.fmt(f),
+            Error::ConfigLoad(ref err) => err.fmt(f),
+            Error::RepoConfig(ref msg) => write!(f, "{}", msg),
             Error::ServerInit(ref err) => err.fmt(f),
         }
     }
@@ -123,6 +128,8 @@ impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match self {
             Error::Config(ref err) => err.source(),
+            Error::ConfigLoad(ref err) => err.source(),
+            Error::RepoConfig(_) => None,
             Error::ServerInit(ref err) => err.source(),
         }
     }
