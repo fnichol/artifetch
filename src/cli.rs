@@ -40,6 +40,7 @@ impl Args {
         }
     }
 }
+
 fn default_config() -> PathBuf {
     env::var("XDG_CONFIG_HOME")
         .as_ref()
@@ -68,4 +69,23 @@ impl BuildInfo {
     fn version_long() -> &'static str {
         include_str!(concat!(env!("OUT_DIR"), "/version_long.txt"))
     }
+}
+
+pub(crate) mod util {
+    use std::env;
+
+    pub(crate) fn init_logger() {
+        if env::var("RUST_LOG").is_err() {
+            env::set_var(
+                "RUST_LOG",
+                concat!(
+                    "actix_server=info,actix_web=info,",
+                    env!("CARGO_PKG_NAME"),
+                    "=info"
+                ),
+            );
+        }
+        env_logger::init();
+    }
+
 }

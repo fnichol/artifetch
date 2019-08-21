@@ -6,11 +6,7 @@ use structopt::StructOpt;
 mod cli;
 
 fn main() {
-    std::env::set_var(
-        "RUST_LOG",
-        "actix_server=info,actix_web=info,artifetch=info",
-    );
-    env_logger::init();
+    cli::util::init_logger();
 
     if let Err(err) = try_main() {
         error!("{}", err);

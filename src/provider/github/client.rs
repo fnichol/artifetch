@@ -3,7 +3,7 @@ use futures::{
     future::{self, Either},
     Future, Stream,
 };
-use log::{error, warn};
+use log::{debug, error, warn};
 use reqwest::{
     header,
     r#async::{Chunk, Client as ReqwestClient, Decoder, Response as ReqwestResponse},
@@ -241,6 +241,7 @@ impl HttpClient {
         }
 
         Either::B(req.send().map_err(Error::Request).and_then(|mut response| {
+            debug!("response: {:?}", response);
             if response.status() == StatusCode::NOT_MODIFIED {
                 Either::A(future::ok(None))
             } else if response.status().is_success() {
