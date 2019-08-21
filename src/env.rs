@@ -103,7 +103,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Error::EnvVarNotFound(ref name, _) => {
-                write!(f, "environment variable not found: {}", name)
+                write!(f, "environment variable not set; name={}", name)
             }
             Error::InvalidBraceChar(ref idx, ref ch) => write!(
                 f,
@@ -112,7 +112,7 @@ impl fmt::Display for Error {
             ),
             Error::NonTerminatedBrace(ref idx) => write!(
                 f,
-                "braced variable starting at idx {} not properly terminated",
+                "braced variable not properly terminated; starting_idx={}",
                 idx
             ),
         }

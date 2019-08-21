@@ -1,45 +1,51 @@
 use crate::app::{Data, Error};
 use crate::env;
 use crate::{Provider, Registry};
+use log::info;
 use serde::de::{self, IntoDeserializer};
 use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt;
+use std::fs;
 use std::marker::PhantomData;
 use std::net::{self, SocketAddr};
+use std::path::Path;
 use std::str::FromStr;
 
-pub fn config() -> Result<Config, Error> {
-    // TODO: remove stub
-    use serde_json::json;
-
-    let json = json!({
-        "bind_addr": "127.0.0.1:8080",
-        "registry": {
-            "github.com": {
-                "oauth_token": "$GITHUB_TOKEN",
-                "repos": [
-                    "fnichol/testr",
-                ],
-            },
+pub fn config(path: Option<&Path>) -> Result<Config, Error> {
+    match path {
+        Some(path) => {
+            info!("loading config file; config={}", path.display());
+            Config::from_json_str(&fs::read_to_string(path)?)
         }
-    })
-    .to_string();
-
-    Config::from_json_str(&json)
+        None => {
+            info!("no config file found, using default config");
+            Ok(Config::default())
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
     #[serde(default = "default_bind_addr", deserialize_with = "de_bind_addr")]
     pub bind_addr: SocketAddr,
+    #[serde(default)]
     pub registry: HashMap<String, RegistryConfig>,
 }
 
 impl Config {
     pub fn from_json_str(s: &str) -> Result<Self, Error> {
         serde_json::from_str(&s).map_err(|err| Error::ConfigLoad(Box::new(err)))
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            bind_addr: default_bind_addr(),
+            registry: HashMap::new(),
+        }
     }
 }
 
